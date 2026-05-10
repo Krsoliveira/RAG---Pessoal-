@@ -24,6 +24,7 @@ import { GoogleAuth }       from 'google-auth-library';
 import { initVertex, credentialsPath, dataStoreId, bucketName } from './src/gcpAuth.js';
 import { salvarDocumento, listarDocumentos }                    from './src/storageClient.js';
 import { buscarContextoInteligente }                            from './src/vertexSearch.js';
+import { gerarRespostaGemini }                                  from './src/geminiService.js';
 
 // ── Configuração do ambiente — ANTES de qualquer chamada GCP ─────────────────
 //
@@ -184,6 +185,51 @@ app.post('/api/search', async (req, res) => {
   } catch (err) {
     console.error('[/api/search] Erro:', err.message);
     res.status(500).json({ erro: 'Falha na busca RAG.', detalhe: err.message });
+  }
+});
+
+// ── POST /api/chat — RAG completo: busca + Gemini → resposta em HTML ─────────
+//
+// Body JSON: { pergunta: string, categoria?: string, topK?: number }
+// Resposta:  { resposta_html: string, fontes: [...], total_chunks: number }
+
+app.post('/api/chat', async (req, res) => {
+  const { pergunta, categoria = null, topK = 5 } = req.body;
+
+  if (!pergunta || typeof pergunta !== 'string' || !pergunta.trim()) {
+    return res.status(400).json({ erro: 'Campo "pergunta" é obrigatório.' });
+  }
+
+  console.log(`[/api/chat] query="${pergunta.substring(0, 60)}" cat=${categoria || 'todas'}`);
+
+  try {
+    // 1. Recupera chunks relevantes do Vertex AI Search
+    const chunks = await buscarContextoInteligente(
+      pergunta.trim(),
+      categoria,
+      Math.min(Math.max(parseInt(topK, 10) || 5, 1), 10),
+    );
+
+    if (!chunks.length) {
+      return res.json({
+        resposta_html: '<p>Não encontrei documentos relevantes para responder a esta pergunta. Verifique se os documentos foram indexados corretamente ou reformule a pergunta.</p>',
+        fontes: [],
+        total_chunks: 0,
+      });
+    }
+
+    // 2. Gera resposta em HTML com o Gemini usando os chunks como contexto
+    const respostaHtml = await gerarRespostaGemini(pergunta.trim(), chunks);
+
+    res.json({
+      resposta_html: respostaHtml,
+      fontes: chunks.map(c => ({ nome: c.nome, uri: c.uri, score: c.score })),
+      total_chunks: chunks.length,
+    });
+
+  } catch (err) {
+    console.error('[/api/chat] Erro:', err.message);
+    res.status(500).json({ erro: 'Falha ao gerar resposta.', detalhe: err.message });
   }
 });
 

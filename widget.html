@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RAG — meu-rag-java-2026</title>
+
+  <!--
+    SDK do widget Vertex AI Agent Builder.
+    Documentação: https://cloud.google.com/generative-ai-app-builder/docs/deploy-chat-widget
+  -->
+  <script src="https://cloud.google.com/ai/gen-app-builder/client?hl=pt-BR"></script>
+
+  <style>
+    /* ── Reset e base ───────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #f0f4f8;
+      color: #263238;
+      min-height: 100vh;
+    }
+
+    /* ── Layout ─────────────────────────────────────────────────── */
+    .app {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 2rem 1rem 4rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.75rem;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────── */
+    header {
+      text-align: center;
+    }
+
+    header h1 {
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: #1a237e;
+    }
+
+    header p {
+      color: #546e7a;
+      margin-top: .4rem;
+      font-size: .95rem;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      background: #e8eaf6;
+      color: #283593;
+      font-size: .78rem;
+      font-weight: 600;
+      padding: .2rem .65rem;
+      border-radius: 999px;
+      margin-top: .6rem;
+    }
+
+    /* ── Cards ──────────────────────────────────────────────────── */
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.07);
+      padding: 1.5rem 1.75rem;
+    }
+
+    .card h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #1a237e;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+
+    /* ── Botão principal de busca (triggerId) ────────────────────── */
+    #btnAbrirWidget {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: .6rem;
+      width: 100%;
+      padding: .9rem 1.5rem;
+      background: #1a237e;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 1.05rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .2s;
+    }
+
+    #btnAbrirWidget:hover  { background: #283593; }
+    #btnAbrirWidget:active { background: #0d1b6e; }
+
+    .search-icon {
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+    }
+
+    /* ── Formulário de Upload ────────────────────────────────────── */
+    .upload-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: .85rem;
+    }
+
+    @media (max-width: 580px) {
+      .upload-grid { grid-template-columns: 1fr; }
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: .3rem;
+    }
+
+    .form-group.full { grid-column: 1 / -1; }
+
+    label {
+      font-size: .82rem;
+      font-weight: 600;
+      color: #546e7a;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    input[type="text"], input[type="file"], select, textarea {
+      width: 100%;
+      padding: .6rem .85rem;
+      border: 1.5px solid #cfd8dc;
+      border-radius: 7px;
+      font-size: .92rem;
+      color: #263238;
+      background: #fff;
+      transition: border-color .15s;
+    }
+
+    input[type="text"]:focus,
+    select:focus,
+    textarea:focus { outline: none; border-color: #3949ab; }
+
+    textarea { resize: vertical; min-height: 60px; }
+
+    /* Drop zone */
+    .drop-zone {
+      border: 2px dashed #90a4ae;
+      border-radius: 9px;
+      padding: 1.2rem 1rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+      position: relative;
+    }
+
+    .drop-zone:hover,
+    .drop-zone.dragover { border-color: #3949ab; background: #f3f4ff; }
+
+    .drop-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .drop-zone-label {
+      font-size: .88rem;
+      color: #546e7a;
+      pointer-events: none;
+    }
+
+    .drop-zone-label strong { color: #1a237e; }
+
+    #nomeArquivo {
+      margin-top: .4rem;
+      font-size: .82rem;
+      color: #3949ab;
+      font-weight: 600;
+    }
+
+    /* Botão submit */
+    .btn-submit {
+      width: 100%;
+      padding: .75rem 1.2rem;
+      background: #3949ab;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: .95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .2s;
+    }
+
+    .btn-submit:hover { background: #283593; }
+    .btn-submit:disabled { background: #90a4ae; cursor: not-allowed; }
+
+    /* ── Feedback de upload ──────────────────────────────────────── */
+    #uploadFeedback {
+      margin-top: .9rem;
+      padding: .75rem 1rem;
+      border-radius: 7px;
+      font-size: .88rem;
+      display: none;
+    }
+
+    #uploadFeedback.ok    { background: #e8f5e9; color: #1b5e20; border: 1px solid #a5d6a7; }
+    #uploadFeedback.erro  { background: #ffebee; color: #b71c1c; border: 1px solid #ef9a9a; }
+    #uploadFeedback.info  { background: #e3f2fd; color: #0d47a1; border: 1px solid #90caf9; }
+
+    /* ── Busca direta (RAG API) ──────────────────────────────────── */
+    .search-row {
+      display: flex;
+      gap: .7rem;
+    }
+
+    .search-row input { flex: 1; }
+
+    .btn-buscar {
+      padding: .6rem 1.2rem;
+      background: #1a237e;
+      color: #fff;
+      border: none;
+      border-radius: 7px;
+      font-size: .9rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background .2s;
+    }
+
+    .btn-buscar:hover { background: #283593; }
+    .btn-buscar:disabled { background: #90a4ae; cursor: not-allowed; }
+
+    /* Resultados */
+    #resultados { margin-top: 1rem; display: none; }
+
+    .resultado-item {
+      border-left: 3px solid #3949ab;
+      padding: .75rem 1rem;
+      margin-bottom: .75rem;
+      background: #f8f9fe;
+      border-radius: 0 7px 7px 0;
+    }
+
+    .resultado-item .doc-nome {
+      font-weight: 700;
+      color: #1a237e;
+      font-size: .9rem;
+    }
+
+    .resultado-item .doc-score {
+      font-size: .78rem;
+      color: #78909c;
+      margin-top: .15rem;
+    }
+
+    .resultado-item .doc-texto {
+      font-size: .88rem;
+      color: #37474f;
+      margin-top: .5rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+
+    .sem-resultado {
+      text-align: center;
+      color: #78909c;
+      font-size: .9rem;
+      padding: 1rem;
+    }
+
+    /* ── Lista de documentos ─────────────────────────────────────── */
+    #tabelaDocs { width: 100%; border-collapse: collapse; font-size: .85rem; }
+
+    #tabelaDocs th {
+      background: #e8eaf6;
+      color: #283593;
+      font-weight: 600;
+      padding: .55rem .75rem;
+      text-align: left;
+    }
+
+    #tabelaDocs td {
+      padding: .5rem .75rem;
+      border-bottom: 1px solid #eceff1;
+      color: #37474f;
+    }
+
+    #tabelaDocs tr:last-child td { border-bottom: none; }
+
+    .status-badge {
+      display: inline-block;
+      padding: .18rem .55rem;
+      border-radius: 999px;
+      font-size: .75rem;
+      font-weight: 600;
+    }
+
+    .status-badge.ok   { background: #e8f5e9; color: #2e7d32; }
+    .status-badge.info { background: #e3f2fd; color: #1565c0; }
+    .status-badge.warn { background: #fff3e0; color: #e65100; }
+
+    #loadingDocs {
+      text-align: center;
+      color: #78909c;
+      font-size: .88rem;
+      padding: .75rem;
+    }
+
+    /* ── Footer ─────────────────────────────────────────────────── */
+    footer {
+      text-align: center;
+      font-size: .78rem;
+      color: #90a4ae;
+      margin-top: 1rem;
+    }
+  </style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ── Header ──────────────────────────────────────────────────── -->
+  <header>
+    <h1>Pesquisa RAG</h1>
+    <p>Vertex AI Agent Builder · meu-rag-java-2026</p>
+    <span class="badge">
+      Data Store: 79d3c94f-c30d-4e96-92bd-6398a1448a6d
+    </span>
+  </header>
+
+  <!-- ── Card 1: Widget de Busca Generativa ──────────────────────── -->
+  <div class="card">
+    <h2>
+      <svg class="search-icon" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+      Busca Inteligente (Widget)
+    </h2>
+
+    <!--
+      triggerId="btnAbrirWidget" vincula este botão ao widget.
+      Ao clicar, o widget abre o diálogo de busca generativa.
+    -->
+    <button id="btnAbrirWidget">
+      <svg class="search-icon" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+      Abrir Pesquisa com IA
+    </button>
+  </div>
+
+  <!-- ── Card 2: Upload de Documento ─────────────────────────────── -->
+  <div class="card">
+    <h2>
+      <svg style="width:18px;height:18px;fill:#1a237e" viewBox="0 0 24 24">
+        <path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/>
+      </svg>
+      Ingestão de Documento
+    </h2>
+
+    <form id="formUpload" novalidate>
+      <div class="upload-grid">
+
+        <!-- Drop zone / seletor de arquivo -->
+        <div class="form-group full">
+          <label>Arquivo (PDF, TXT ou DOCX — máx. 50 MB)</label>
+          <div class="drop-zone" id="dropZone">
+            <input type="file" id="arquivo" name="arquivo"
+                   accept=".pdf,.txt,.docx" required />
+            <div class="drop-zone-label">
+              Arraste o arquivo aqui ou <strong>clique para selecionar</strong>
+            </div>
+            <div id="nomeArquivo"></div>
+          </div>
+        </div>
+
+        <!-- Categoria -->
+        <div class="form-group">
+          <label for="categoria">Categoria</label>
+          <select id="categoria" name="categoria">
+            <option value="geral">Geral</option>
+            <option value="auditoria">Auditoria</option>
+            <option value="conformidade">Conformidade</option>
+            <option value="procedimentos">Procedimentos</option>
+            <option value="normas">Normas</option>
+            <option value="relatorios">Relatórios</option>
+          </select>
+        </div>
+
+        <!-- Usuário -->
+        <div class="form-group">
+          <label for="usuario">Usuário (matrícula)</label>
+          <input type="text" id="usuario" name="usuario"
+                 placeholder="ex.: 12345 ou seu.nome" />
+        </div>
+
+        <!-- Descrição -->
+        <div class="form-group full">
+          <label for="descricao">Descrição (opcional)</label>
+          <textarea id="descricao" name="descricao"
+                    placeholder="Descreva brevemente o conteúdo do documento..."></textarea>
+        </div>
+
+        <!-- Submit -->
+        <div class="form-group full">
+          <button type="submit" class="btn-submit" id="btnUpload">
+            Enviar e Indexar
+          </button>
+        </div>
+
+      </div><!-- /upload-grid -->
+
+      <div id="uploadFeedback"></div>
+    </form>
+  </div>
+
+  <!-- ── Card 3: Busca RAG direta (sem widget) ───────────────────── -->
+  <div class="card">
+    <h2>
+      <svg style="width:18px;height:18px;fill:#1a237e" viewBox="0 0 24 24">
+        <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
+      </svg>
+      Consulta RAG (API direta)
+    </h2>
+    <p style="font-size:.83rem;color:#78909c;margin-bottom:.9rem">
+      Consulta o Data Store via API sem abrir o widget — ideal para integrar em outras interfaces.
+    </p>
+
+    <div class="search-row">
+      <input type="text" id="perguntaInput"
+             placeholder="Ex.: Quais são os limites de alçada para aprovação?" />
+      <button class="btn-buscar" id="btnBuscar">Buscar</button>
+    </div>
+
+    <div id="resultados"></div>
+  </div>
+
+  <!-- ── Card 4: Documentos Indexados ────────────────────────────── -->
+  <div class="card">
+    <h2>
+      <svg style="width:18px;height:18px;fill:#1a237e" viewBox="0 0 24 24">
+        <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13z"/>
+      </svg>
+      Documentos no Bucket
+      <span id="totalDocs" style="font-weight:400;color:#78909c;font-size:.82rem;margin-left:.4rem"></span>
+    </h2>
+
+    <div id="loadingDocs">Carregando documentos...</div>
+    <table id="tabelaDocs" style="display:none">
+      <thead>
+        <tr>
+          <th>Nome</th>
+          <th>Categoria</th>
+          <th>Tipo</th>
+          <th>Upload</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="corpoTabela"></tbody>
+    </table>
+  </div>
+
+</div><!-- /app -->
+
+<footer>
+  Vertex AI Agent Builder &bull; Google Cloud &bull; meu-rag-java-2026
+</footer>
+
+<!--
+  ═══════════════════════════════════════════════════════════════════
+  WIDGET — gen-search-widget
+
+  configid   → ID do Data Store (ou App, se criado um Search App).
+  projectid  → ID do projeto GCP.
+  location   → "global" (padrão para Vertex AI Search).
+  triggerid  → ID do botão que abre o diálogo. Ao clicar em
+               #btnAbrirWidget, o widget exibe a caixa de busca.
+
+  Autenticação:
+    O widget chama setAuthTokenCallback() abaixo para obter o
+    OAuth token via /api/token (gerado pela service account
+    sa-rag-java no backend — nenhuma credencial exposta ao browser).
+  ═══════════════════════════════════════════════════════════════════
+-->
+<gen-search-widget
+  configid="79d3c94f-c30d-4e96-92bd-6398a1448a6d"
+  projectid="meu-rag-java-2026"
+  location="global"
+  language-code="pt-BR"
+  triggerid="btnAbrirWidget"
+></gen-search-widget>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   1. Autenticação do widget via OAuth token do backend
+   ═══════════════════════════════════════════════════════════════════ */
+
+async function obterTokenOAuth() {
+  try {
+    const res = await fetch('/api/token');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const { token } = await res.json();
+    return token;
+  } catch (err) {
+    console.error('[widget] Falha ao obter token OAuth:', err.message);
+    return null;
+  }
+}
+
+// Configura o callback de autenticação assim que o widget estiver pronto.
+document.addEventListener('DOMContentLoaded', () => {
+  const widget = document.querySelector('gen-search-widget');
+  if (widget && typeof widget.setAuthTokenCallback === 'function') {
+    widget.setAuthTokenCallback(obterTokenOAuth);
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+   2. Drop zone — feedback visual de arquivo selecionado
+   ═══════════════════════════════════════════════════════════════════ */
+
+const dropZone   = document.getElementById('dropZone');
+const arquivoInput = document.getElementById('arquivo');
+const nomeArquivo  = document.getElementById('nomeArquivo');
+
+arquivoInput.addEventListener('change', () => {
+  const file = arquivoInput.files[0];
+  nomeArquivo.textContent = file
+    ? `✓ ${file.name} (${(file.size / 1024).toFixed(0)} KB)`
+    : '';
+});
+
+['dragover', 'dragenter'].forEach(ev =>
+  dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.classList.add('dragover'); })
+);
+
+['dragleave', 'drop'].forEach(ev =>
+  dropZone.addEventListener(ev, () => dropZone.classList.remove('dragover'))
+);
+
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  const files = e.dataTransfer?.files;
+  if (files?.length) {
+    arquivoInput.files = files;
+    nomeArquivo.textContent = `✓ ${files[0].name} (${(files[0].size / 1024).toFixed(0)} KB)`;
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+   3. Formulário de Upload → POST /api/upload
+   ═══════════════════════════════════════════════════════════════════ */
+
+const formUpload    = document.getElementById('formUpload');
+const btnUpload     = document.getElementById('btnUpload');
+const uploadFeedback = document.getElementById('uploadFeedback');
+
+function mostrarFeedback(tipo, html) {
+  uploadFeedback.className = tipo;
+  uploadFeedback.innerHTML = html;
+  uploadFeedback.style.display = 'block';
+}
+
+formUpload.addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  const arquivo = arquivoInput.files[0];
+  if (!arquivo) {
+    mostrarFeedback('erro', '⚠ Selecione um arquivo antes de enviar.');
+    return;
+  }
+
+  btnUpload.disabled = true;
+  btnUpload.textContent = 'Enviando…';
+  mostrarFeedback('info', '⏳ Fazendo upload para o Cloud Storage…');
+
+  try {
+    const form = new FormData(formUpload);
+
+    const res = await fetch('/api/upload', { method: 'POST', body: form });
+    const json = await res.json();
+
+    if (!res.ok) throw new Error(json.erro || `HTTP ${res.status}`);
+
+    const statusEmoji = { indexado: '✅', indexando: '⏳', aguardando: '🕐', erro: '❌' };
+    const emoji = statusEmoji[json.status_indexacao] || '📄';
+
+    mostrarFeedback('ok', `
+      ${emoji} <strong>${json.mensagem}</strong><br/>
+      <small>
+        Blob: <code>${json.blob_name}</code><br/>
+        Status: <strong>${json.status_indexacao}</strong>
+      </small>
+    `);
+
+    formUpload.reset();
+    nomeArquivo.textContent = '';
+
+    // Atualiza a lista de documentos após o upload.
+    setTimeout(carregarDocumentos, 1500);
+
+  } catch (err) {
+    mostrarFeedback('erro', `❌ <strong>Erro:</strong> ${err.message}`);
+  } finally {
+    btnUpload.disabled = false;
+    btnUpload.textContent = 'Enviar e Indexar';
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+   4. Busca RAG direta → POST /api/search
+   ═══════════════════════════════════════════════════════════════════ */
+
+const perguntaInput = document.getElementById('perguntaInput');
+const btnBuscar     = document.getElementById('btnBuscar');
+const resultadosDiv = document.getElementById('resultados');
+
+async function executarBusca() {
+  const pergunta = perguntaInput.value.trim();
+  if (!pergunta) return;
+
+  btnBuscar.disabled = true;
+  btnBuscar.textContent = 'Buscando…';
+  resultadosDiv.style.display = 'block';
+  resultadosDiv.innerHTML = '<p style="color:#78909c;font-size:.88rem">⏳ Consultando o Data Store…</p>';
+
+  try {
+    const res  = await fetch('/api/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pergunta, topK: 5 }),
+    });
+    const json = await res.json();
+
+    if (!res.ok) throw new Error(json.erro || `HTTP ${res.status}`);
+
+    if (!json.resultados.length) {
+      resultadosDiv.innerHTML = '<p class="sem-resultado">Nenhum resultado encontrado para esta consulta.</p>';
+      return;
+    }
+
+    resultadosDiv.innerHTML = json.resultados.map((r, i) => `
+      <div class="resultado-item">
+        <div class="doc-nome">[${i + 1}] ${escHtml(r.nome)}</div>
+        <div class="doc-score">Score: ${Number(r.score).toFixed(4)} &nbsp;|&nbsp; ${escHtml(r.uri || '—')}</div>
+        <div class="doc-texto">${escHtml(r.texto.length > 500 ? r.texto.substring(0, 500) + '…' : r.texto)}</div>
+      </div>
+    `).join('');
+
+  } catch (err) {
+    resultadosDiv.innerHTML = `<p style="color:#b71c1c;font-size:.88rem">❌ Erro: ${escHtml(err.message)}</p>`;
+  } finally {
+    btnBuscar.disabled = false;
+    btnBuscar.textContent = 'Buscar';
+  }
+}
+
+btnBuscar.addEventListener('click', executarBusca);
+perguntaInput.addEventListener('keydown', e => { if (e.key === 'Enter') executarBusca(); });
+
+/* ═══════════════════════════════════════════════════════════════════
+   5. Lista de documentos → GET /api/documentos
+   ═══════════════════════════════════════════════════════════════════ */
+
+async function carregarDocumentos() {
+  const loadingDocs = document.getElementById('loadingDocs');
+  const tabelaDocs  = document.getElementById('tabelaDocs');
+  const corpoTabela = document.getElementById('corpoTabela');
+  const totalDocs   = document.getElementById('totalDocs');
+
+  loadingDocs.style.display = 'block';
+  tabelaDocs.style.display  = 'none';
+
+  try {
+    const res  = await fetch('/api/documentos');
+    const json = await res.json();
+
+    if (!res.ok) throw new Error(json.erro || `HTTP ${res.status}`);
+
+    loadingDocs.style.display = 'none';
+
+    if (!json.documentos.length) {
+      loadingDocs.textContent = 'Nenhum documento encontrado. Faça o upload de um PDF ou TXT.';
+      loadingDocs.style.display = 'block';
+      return;
+    }
+
+    totalDocs.textContent = `(${json.total} documento${json.total !== 1 ? 's' : ''})`;
+
+    corpoTabela.innerHTML = json.documentos.map(d => `
+      <tr>
+        <td>${escHtml(d.nome)}</td>
+        <td>${escHtml(d.categoria)}</td>
+        <td style="text-transform:uppercase;font-size:.78rem;color:#78909c">${escHtml(d.tipo)}</td>
+        <td style="font-size:.82rem;color:#78909c">${escHtml(d.data_upload)}</td>
+        <td>
+          <span class="status-badge ${escHtml(d.status_css)}">
+            ${escHtml(d.status_label)}
+          </span>
+        </td>
+      </tr>
+    `).join('');
+
+    tabelaDocs.style.display = 'table';
+  } catch (err) {
+    loadingDocs.textContent = `Erro ao carregar documentos: ${err.message}`;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   6. Utilitário — escapa HTML para evitar XSS
+   ═══════════════════════════════════════════════════════════════════ */
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   7. Inicialização
+   ═══════════════════════════════════════════════════════════════════ */
+
+carregarDocumentos();
+</script>
+
+</body>
+</html>

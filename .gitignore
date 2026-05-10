@@ -1,0 +1,23 @@
+# Credenciais GCP — NUNCA versionar
+credentials_rag.json
+credentials*.json
+*.json.bak
+
+# Variáveis de ambiente com segredos
+.env
+
+# Compilação Java
+java/target/
+
+# Node.js
+javascript/node_modules/
+javascript/.env
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+
+# Sistemas operacionais
+.DS_Store
+Thumbs.db

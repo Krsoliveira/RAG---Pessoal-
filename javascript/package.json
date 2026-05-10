@@ -1,0 +1,30 @@
+{
+  "name": "siai-rag-gcp",
+  "version": "1.0.0",
+  "description": "Implementação Node.js dos serviços RAG do SIAI (Comigo Auditoria). Espelha a arquitetura Python em ai_agents/services/ usando GCP: Cloud Storage, Vertex AI Agent Builder, Cloud Tasks, Document AI e Vertex AI (Gemini).",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "server": "node server.js",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "dotenv": "^16.4.5",
+    "@google-cloud/storage": "^7.10.0",
+    "@google-cloud/discoveryengine": "^1.9.0",
+    "@google-cloud/tasks": "^5.5.0",
+    "@google-cloud/documentai": "^8.6.0",
+    "@google-cloud/vertexai": "^1.6.0",
+    "google-auth-library": "^9.9.0",
+    "winston": "^3.13.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}

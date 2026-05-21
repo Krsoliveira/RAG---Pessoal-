@@ -7,7 +7,7 @@
  * Depende de: gcpAuth
  */
 
-import { GoogleGenAI } from '@google/genai';
+import { VertexAI } from '@google-cloud/vertexai';
 import { credentialsPath, projectId } from './gcpAuth.js';
 import logger from './logger.js';
 
@@ -55,26 +55,25 @@ Resposta em HTML:`;
 export async function gerarRespostaGemini(pergunta, chunks) {
   const pid = projectId();
 
-  const ai = new GoogleGenAI({
-    vertexai: true,
+  const vertexAI = new VertexAI({
     project:  pid,
     location: VERTEX_LOCATION,
     googleAuthOptions: { keyFilename: credentialsPath() },
   });
 
+  const model = vertexAI.getGenerativeModel({
+    model: GEMINI_MODEL,
+    generationConfig: {
+      temperature:     0.2,
+      maxOutputTokens: 2048,
+    },
+  });
+
   const prompt = buildPrompt(pergunta, chunks);
 
   try {
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: prompt,
-      config: {
-        temperature:     0.2,
-        maxOutputTokens: 2048,
-      },
-    });
-
-    const text = response.text ?? '';
+    const result   = await model.generateContent(prompt);
+    const text     = result.response?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
 
     // Remove blocos markdown residuais que o modelo pode gerar ocasionalmente
     const html = text

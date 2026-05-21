@@ -1,281 +1,164 @@
-/**
- * Servidor RAG — meu-rag-java-2026
- *
- * Rotas:
- *   GET  /                → página principal (widget + formulário de upload)
- *   GET  /api/token       → OAuth 2.0 access token para autenticar o <gen-search-widget>
- *   POST /api/upload      → ingestão de PDF/TXT/DOCX no Cloud Storage + Agent Builder
- *   POST /api/search      → consulta RAG direta ao Vertex AI Search (sem widget)
- *   GET  /api/documentos  → lista documentos indexados no bucket
- *
- * Como rodar:
- *   start-node.bat              (Windows — carrega .env automaticamente)
- *   ./start-node.sh             (Linux/Mac)
- */
+import 'dotenv/config';
+import express from 'express';
+import multer from 'multer';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-// ── Imports — todos no topo (obrigatório em ES modules) ───────────────────────
-import express              from 'express';
-import multer               from 'multer';
-import dotenv               from 'dotenv';
-import { fileURLToPath }    from 'url';
-import { dirname, join, resolve, isAbsolute } from 'path';
-import { GoogleAuth }       from 'google-auth-library';
+import logger from './src/logger.js';
+import { getGcpConfig } from './src/gcpAuth.js';
+import { uploadToStorage, listarDocumentos } from './src/storageClient.js';
+import { despacharTarefaProcessamento } from './src/tasksClient.js';
+import { processarPayloadIngestao } from './src/ingestPipeline.js';
+import { buscarContextoInteligente } from './src/vertexSearch.js';
+import { retrieveContext } from './src/queryOrchestrator.js';
+import { gerarToken } from './src/gcpAuth.js';
+import { INGEST, SERVER } from './src/config.js';
 
-import { initVertex, credentialsPath, dataStoreId, bucketName } from './src/gcpAuth.js';
-import { salvarDocumento, listarDocumentos }                    from './src/storageClient.js';
-import { buscarContextoInteligente }                            from './src/vertexSearch.js';
-import { gerarRespostaGemini }                                  from './src/geminiService.js';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// ── Configuração do ambiente — ANTES de qualquer chamada GCP ─────────────────
-//
-// __dirname aponta para javascript/; REPO_ROOT é a raiz do repositório.
-// Isso é necessário porque o .env usa "./credentials_rag.json" (relativo à raiz),
-// mas o processo Node.js é iniciado dentro de javascript/ → o path ficaria errado
-// se não fosse resolvido para absoluto aqui.
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = resolve(__dirname, '..');
-
-// 1. Carrega variáveis do .env (raiz do repo).
-dotenv.config({ path: join(REPO_ROOT, '.env') });
-
-// 2. Converte GCP_VERTEX_CREDENTIALS_PATH para caminho absoluto.
-//    "./credentials_rag.json" → "D:\SIAI - REPO_CLONADO\siai-rag-java-js\credentials_rag.json"
-if (process.env.GCP_VERTEX_CREDENTIALS_PATH) {
-  const raw = process.env.GCP_VERTEX_CREDENTIALS_PATH.trim();
-  if (!isAbsolute(raw)) {
-    process.env.GCP_VERTEX_CREDENTIALS_PATH = resolve(REPO_ROOT, raw);
-  }
-}
-
-// 3. Inicializa GOOGLE_APPLICATION_CREDENTIALS com o caminho resolvido.
-initVertex();
-
-// ── Express + Multer ──────────────────────────────────────────────────────────
-
-const app  = express();
-const PORT = process.env.PORT || 3000;
-
+const app = express();
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-// Multer: Buffer em memória, limite 50 MB, somente PDF/TXT/DOCX.
+// ─── Upload config ────────────────────────────────────────────────────────────
+
+const storage = multer.memoryStorage();
 const upload = multer({
-  storage: multer.memoryStorage(),
-  limits:  { fileSize: 50 * 1024 * 1024 },
-  fileFilter(_req, file, cb) {
-    const ALLOWED = new Set([
-      'application/pdf',
-      'text/plain',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    ]);
-    ALLOWED.has(file.mimetype)
-      ? cb(null, true)
-      : cb(new Error(`Tipo de arquivo não suportado: ${file.mimetype}`));
+  storage,
+  limits: { fileSize: INGEST.MAX_FILE_SIZE_BYTES },
+  fileFilter: (_req, file, cb) => {
+    if (INGEST.ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Tipo de arquivo não suportado: ${file.mimetype}. Use PDF, DOCX ou TXT.`));
+    }
   },
-}).single('arquivo');
+});
 
-// ── GET / — Página principal (widget HTML) ────────────────────────────────────
+// ─── Routes ───────────────────────────────────────────────────────────────────
 
 app.get('/', (_req, res) => {
-  res.sendFile(join(REPO_ROOT, 'widget.html'));
+  res.sendFile(path.join(__dirname, '..', 'widget.html'));
 });
 
-// ── GET /api/token — OAuth 2.0 token para o <gen-search-widget> ──────────────
-//
-// O widget chama esta rota via setAuthTokenCallback() para autenticar requests
-// sem expor credenciais no browser. Token tem validade de ~1 hora e é renovado
-// automaticamente pelo widget antes de expirar.
-
+/**
+ * GET /api/token
+ * Retorna um token OAuth 2.0 para autenticar o widget no Vertex AI Search.
+ */
 app.get('/api/token', async (_req, res) => {
   try {
-    const auth = new GoogleAuth({
-      keyFile: credentialsPath(),
-      scopes:  ['https://www.googleapis.com/auth/cloud-platform'],
-    });
-    const client = await auth.getClient();
-    const { token } = await client.getAccessToken();
-
-    if (!token) throw new Error('Token retornado pelo GoogleAuth está vazio.');
-
+    const token = await gerarToken();
     res.json({ token });
   } catch (err) {
-    console.error('[/api/token] Erro:', err.message);
-    res.status(500).json({ erro: 'Falha ao gerar token OAuth.', detalhe: err.message });
+    logger.error('Erro ao gerar token:', err);
+    res.status(500).json({ error: 'Falha ao gerar token de autenticação.' });
   }
 });
 
-// ── POST /api/upload — Upload para GCS + ingestão no Agent Builder ────────────
-//
-// Form-data esperado:
-//   arquivo    (File)   → PDF, TXT ou DOCX (máx. 50 MB)
-//   categoria  (string) → categoria do documento (padrão: "geral")
-//   descricao  (string) → descrição opcional
-//   usuario    (string) → matrícula ou identificador (padrão: "web_user")
-//
-// Resposta: { blob_name, status_indexacao, mensagem, bucket, data_store }
+/**
+ * POST /api/upload
+ * Recebe um documento, faz upload no GCS e enfileira para indexação.
+ * Body: multipart/form-data — campo "file" + campo opcional "categoria"
+ */
+app.post('/api/upload', upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+  }
 
-app.post('/api/upload', (req, res) => {
-  upload(req, res, async (err) => {
-    if (err instanceof multer.MulterError) {
-      return res.status(400).json({ erro: `Erro de upload: ${err.message}` });
+  const categoria = req.body?.categoria?.trim() || 'geral';
+  const { originalname, mimetype, buffer } = req.file;
+
+  logger.info(`Upload recebido: ${originalname} (${mimetype}) — categoria: ${categoria}`);
+
+  try {
+    const gcsPath = await uploadToStorage(buffer, originalname, mimetype, categoria);
+
+    const payload = { gcsPath, nomeOriginal: originalname, mimetype, categoria };
+
+    // Em produção usa Cloud Tasks; localmente processa de forma síncrona
+    if (process.env.RAG_INGEST_WORKER_URL) {
+      await despacharTarefaProcessamento(payload);
+      res.json({ message: 'Documento recebido e enfileirado para indexação.', gcsPath });
+    } else {
+      await processarPayloadIngestao(payload);
+      res.json({ message: 'Documento indexado com sucesso.', gcsPath });
     }
-    if (err) {
-      return res.status(400).json({ erro: err.message });
-    }
-    if (!req.file) {
-      return res.status(400).json({ erro: 'Nenhum arquivo enviado. Use o campo "arquivo".' });
-    }
-
-    const { originalname, buffer, mimetype } = req.file;
-    const categoria = (req.body.categoria || 'geral').trim().replace(/[^a-z0-9_-]/gi, '_');
-    const descricao = (req.body.descricao || '').trim();
-    const usuario   = (req.body.usuario   || 'web_user').trim();
-
-    // Extensão derivada do MIME type (mais seguro que confiar no nome do arquivo).
-    const EXT_MAP = {
-      'application/pdf':   'pdf',
-      'text/plain':        'txt',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-    };
-    const tipo = EXT_MAP[mimetype] || 'txt';
-
-    console.log(`[/api/upload] arquivo="${originalname}" tipo=${tipo} cat=${categoria} user=${usuario}`);
-
-    try {
-      const resultado = await salvarDocumento(
-        originalname, tipo, categoria, descricao, buffer, usuario,
-      );
-
-      res.json({
-        blob_name:        resultado.blob_name,
-        status_indexacao: resultado.status_indexacao,
-        mensagem:         `Arquivo "${originalname}" enviado com sucesso.`,
-        bucket:           bucketName(),
-        data_store:       dataStoreId(),
-      });
-    } catch (uploadErr) {
-      console.error('[/api/upload] Erro:', uploadErr.message);
-      res.status(500).json({ erro: 'Falha no upload.', detalhe: uploadErr.message });
-    }
-  });
+  } catch (err) {
+    logger.error('Erro no upload:', err);
+    res.status(500).json({ error: err.message || 'Erro ao processar o documento.' });
+  }
 });
 
-// ── POST /api/search — Consulta RAG ao Vertex AI Search ──────────────────────
-//
-// Body JSON: { pergunta: string, categoria?: string, topK?: number }
-// Resposta:  { resultados: [{ nome, uri, texto, score }], total: number }
-
+/**
+ * POST /api/search
+ * Busca semântica direta no Vertex AI Agent Builder.
+ * Body: { query: string, categoria?: string }
+ */
 app.post('/api/search', async (req, res) => {
-  const { pergunta, categoria = null, topK = 5 } = req.body;
+  const { query, categoria } = req.body ?? {};
 
-  if (!pergunta || typeof pergunta !== 'string' || !pergunta.trim()) {
-    return res.status(400).json({ erro: 'Campo "pergunta" é obrigatório.' });
+  if (!query || typeof query !== 'string' || query.trim().length === 0) {
+    return res.status(400).json({ error: 'O campo "query" é obrigatório.' });
   }
 
-  console.log(`[/api/search] query="${pergunta.substring(0, 60)}" cat=${categoria || 'todas'} topK=${topK}`);
-
   try {
-    const resultados = await buscarContextoInteligente(
-      pergunta.trim(),
-      categoria,
-      Math.min(Math.max(parseInt(topK, 10) || 5, 1), 20),
-    );
-    res.json({ resultados, total: resultados.length });
+    const resultados = await buscarContextoInteligente(query.trim(), categoria);
+    res.json({ resultados });
   } catch (err) {
-    console.error('[/api/search] Erro:', err.message);
-    res.status(500).json({ erro: 'Falha na busca RAG.', detalhe: err.message });
+    logger.error('Erro na busca:', err);
+    res.status(500).json({ error: 'Erro ao realizar a busca.' });
   }
 });
 
-// ── POST /api/chat — RAG completo: busca + Gemini → resposta em HTML ─────────
-//
-// Body JSON: { pergunta: string, categoria?: string, topK?: number }
-// Resposta:  { resposta_html: string, fontes: [...], total_chunks: number }
-
+/**
+ * POST /api/chat
+ * Pipeline RAG completo: busca contexto + gera resposta via Gemini.
+ * Body: { query: string, userId?: string, categoria?: string }
+ */
 app.post('/api/chat', async (req, res) => {
-  const { pergunta, categoria = null, topK = 5 } = req.body;
+  const { query, userId = 'anonimo', categoria } = req.body ?? {};
 
-  if (!pergunta || typeof pergunta !== 'string' || !pergunta.trim()) {
-    return res.status(400).json({ erro: 'Campo "pergunta" é obrigatório.' });
+  if (!query || typeof query !== 'string' || query.trim().length === 0) {
+    return res.status(400).json({ error: 'O campo "query" é obrigatório.' });
   }
 
-  console.log(`[/api/chat] query="${pergunta.substring(0, 60)}" cat=${categoria || 'todas'}`);
-
   try {
-    // 1. Recupera chunks relevantes do Vertex AI Search
-    const chunks = await buscarContextoInteligente(
-      pergunta.trim(),
-      categoria,
-      Math.min(Math.max(parseInt(topK, 10) || 5, 1), 10),
-    );
-
-    if (!chunks.length) {
-      return res.json({
-        resposta_html: '<p>Não encontrei documentos relevantes para responder a esta pergunta. Verifique se os documentos foram indexados corretamente ou reformule a pergunta.</p>',
-        fontes: [],
-        total_chunks: 0,
-      });
-    }
-
-    // 2. Gera resposta em HTML com o Gemini usando os chunks como contexto
-    const respostaHtml = await gerarRespostaGemini(pergunta.trim(), chunks);
-
-    res.json({
-      resposta_html: respostaHtml,
-      fontes: chunks.map(c => ({ nome: c.nome, uri: c.uri, score: c.score })),
-      total_chunks: chunks.length,
-    });
-
+    const resposta = await retrieveContext(query.trim(), userId, categoria);
+    res.json({ resposta });
   } catch (err) {
-    console.error('[/api/chat] Erro:', err.message);
-    res.status(500).json({ erro: 'Falha ao gerar resposta.', detalhe: err.message });
+    logger.error('Erro no chat:', err);
+    res.status(500).json({ error: 'Erro ao processar a consulta.' });
   }
 });
 
-// ── GET /api/documentos — Lista documentos do bucket ─────────────────────────
-//
-// Query params: categoria (opcional)
-// Resposta:     { documentos: [...], total: number }
-
-app.get('/api/documentos', async (req, res) => {
-  const { categoria = null } = req.query;
+/**
+ * GET /api/documentos
+ * Lista os documentos indexados no GCS com seus metadados.
+ */
+app.get('/api/documentos', async (_req, res) => {
   try {
-    const documentos = await listarDocumentos(categoria || null);
-    res.json({ documentos, total: documentos.length });
+    const documentos = await listarDocumentos();
+    res.json({ documentos });
   } catch (err) {
-    console.error('[/api/documentos] Erro:', err.message);
-    res.status(500).json({ erro: 'Falha ao listar documentos.', detalhe: err.message });
+    logger.error('Erro ao listar documentos:', err);
+    res.status(500).json({ error: 'Erro ao listar documentos.' });
   }
 });
 
-// ── Erro genérico ─────────────────────────────────────────────────────────────
+// ─── Error handler ────────────────────────────────────────────────────────────
 
 app.use((err, _req, res, _next) => {
-  console.error('[server] Erro não tratado:', err.message);
-  res.status(500).json({ erro: 'Erro interno do servidor.' });
+  if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: 'Arquivo muito grande. Limite: 50 MB.' });
+  }
+  logger.error('Erro não tratado:', err);
+  res.status(500).json({ error: err.message || 'Erro interno.' });
 });
 
-// ── Start ─────────────────────────────────────────────────────────────────────
+// ─── Start ────────────────────────────────────────────────────────────────────
+
+const PORT = Number(process.env.PORT) || SERVER.DEFAULT_PORT;
 
 app.listen(PORT, () => {
-  const credPath = process.env.GCP_VERTEX_CREDENTIALS_PATH || '(não configurado)';
-  console.log('');
-  console.log('╔══════════════════════════════════════════════╗');
-  console.log('║   RAG Server — meu-rag-java-2026            ║');
-  console.log('╠══════════════════════════════════════════════╣');
-  console.log(`║   URL      : http://localhost:${PORT}           ║`);
-  console.log(`║   Bucket   : ${(process.env.GCP_STORAGE_BUCKET || '').padEnd(28)} ║`);
-  console.log(`║   DataStore: ${dataStoreId().substring(0, 28).padEnd(28)} ║`);
-  console.log('╚══════════════════════════════════════════════╝');
-  console.log('');
-  console.log('  Credenciais:', credPath);
-  console.log('');
-  console.log('  Rotas disponíveis:');
-  console.log('  GET  /                → widget de busca');
-  console.log('  GET  /api/token       → OAuth token para o widget');
-  console.log('  POST /api/upload      → upload de documento');
-  console.log('  POST /api/search      → consulta RAG (JSON)');
-  console.log('  GET  /api/documentos  → lista documentos');
-  console.log('');
+  logger.info(`Servidor iniciado em http://localhost:${PORT}`);
+  logger.info(`Projeto GCP: ${getGcpConfig().projectId}`);
 });

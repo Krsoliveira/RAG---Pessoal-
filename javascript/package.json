@@ -1,27 +1,36 @@
 {
-  "name": "siai-rag-gcp",
+  "name": "rag-pessoal-gcp",
   "version": "1.0.0",
-  "description": "Implementação Node.js dos serviços RAG do SIAI (Comigo Auditoria). Espelha a arquitetura Python em ai_agents/services/ usando GCP: Cloud Storage, Vertex AI Agent Builder, Cloud Tasks, Document AI e Vertex AI (Gemini).",
+  "description": "Sistema RAG para busca semântica em documentos pessoais usando Google Cloud Vertex AI e Gemini.",
+  "main": "server.js",
   "type": "module",
-  "main": "src/index.js",
   "engines": {
     "node": ">=20.0.0"
   },
   "scripts": {
-    "start": "node src/index.js",
-    "server": "node server.js",
+    "start": "node server.js",
+    "dev": "node --watch server.js",
     "test": "node --experimental-vm-modules node_modules/.bin/jest"
   },
+  "keywords": [
+    "rag",
+    "vertex-ai",
+    "gemini",
+    "google-cloud",
+    "semantic-search",
+    "document-ai"
+  ],
+  "author": "Kaique Rafael dos Santos Oliveira",
+  "license": "MIT",
   "dependencies": {
-    "@google-cloud/discoveryengine": "^1.9.0",
-    "@google-cloud/documentai": "^8.6.0",
-    "@google-cloud/storage": "^7.10.0",
-    "@google-cloud/tasks": "^5.5.0",
+    "@google-cloud/discoveryengine": "^1.5.0",
+    "@google-cloud/documentai": "^8.5.0",
+    "@google-cloud/storage": "^7.11.0",
+    "@google-cloud/tasks": "^5.4.0",
     "@google-cloud/vertexai": "^1.6.0",
-    "@google/genai": "^2.0.1",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "google-auth-library": "^9.9.0",
+    "google-auth-library": "^9.11.0",
     "multer": "^1.4.5-lts.1",
     "winston": "^3.13.0"
   },

@@ -1,22 +1,17 @@
-/**
- * Configuração centralizada de logger usando Winston.
- * Exporta uma única instância reutilizada por todos os módulos.
- */
+import winston from 'winston';
 
-import { createLogger, format, transports } from 'winston';
-
-const logger = createLogger({
+const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
-  format: format.combine(
-    format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-    format.errors({ stack: true }),
-    format.printf(({ timestamp, level, message, stack }) =>
+  format: winston.format.combine(
+    winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+    winston.format.errors({ stack: true }),
+    winston.format.printf(({ timestamp, level, message, stack }) =>
       stack
         ? `${timestamp} [${level.toUpperCase()}] ${message}\n${stack}`
         : `${timestamp} [${level.toUpperCase()}] ${message}`
     )
   ),
-  transports: [new transports.Console()],
+  transports: [new winston.transports.Console()],
 });
 
 export default logger;

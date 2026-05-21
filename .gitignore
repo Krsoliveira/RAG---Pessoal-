@@ -1,23 +1,38 @@
-# Credenciais GCP — NUNCA versionar
-credentials_rag.json
+# =============================================================
+# Credenciais e segredos — NUNCA commitar
+# =============================================================
 credentials*.json
 *.json.bak
-
-# Variáveis de ambiente com segredos
 .env
+.env.local
+.env.*.local
 
-# Compilação Java
+# =============================================================
+# Dependências
+# =============================================================
+javascript/node_modules/
 java/target/
 
-# Node.js
-javascript/node_modules/
-javascript/.env
+# =============================================================
+# Build / cache
+# =============================================================
+.next/
+dist/
+*.log
+npm-debug.log*
 
+# =============================================================
 # IDEs
+# =============================================================
 .idea/
 *.iml
 .vscode/
+*.swp
+*.swo
 
-# Sistemas operacionais
+# =============================================================
+# Sistema operacional
+# =============================================================
 .DS_Store
 Thumbs.db
+desktop.ini

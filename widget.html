@@ -308,9 +308,38 @@
       height: 8px;
       background: #22c55e;
       border-radius: 50%;
-      margin-left: auto;
       flex-shrink: 0;
     }
+
+    /* Filtro de categoria no header do chat */
+    .chat-filter {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+
+    .chat-filter label {
+      font-size: .78rem;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .chat-filter-select {
+      padding: .35rem .65rem;
+      background: var(--chat-bg);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      color: #0f172a;
+      font-size: .82rem;
+      font-family: inherit;
+      cursor: pointer;
+      outline: none;
+      transition: border-color .15s;
+    }
+
+    .chat-filter-select:focus { border-color: var(--accent); }
+    .chat-filter-select:hover { border-color: #94a3b8; }
 
     /* Mensagens */
     .messages {
@@ -658,9 +687,6 @@
             <option value="relatorios">Relatórios</option>
           </select>
 
-          <label class="sb-label">Usuário (matrícula)</label>
-          <input class="sb-input" type="text" id="usuario" name="usuario" placeholder="ex.: 12345" />
-
           <label class="sb-label">Descrição (opcional)</label>
           <textarea class="sb-textarea" id="descricao" name="descricao" placeholder="Breve descrição do documento..."></textarea>
 
@@ -697,6 +723,18 @@
       <div class="chat-header-info">
         <strong>Assistente RAG</strong>
         <span>Gemini Flash · Vertex AI Search</span>
+      </div>
+      <div class="chat-filter">
+        <label for="categoriaConsulta">Categoria:</label>
+        <select id="categoriaConsulta" class="chat-filter-select">
+          <option value="">Todas</option>
+          <option value="geral">Geral</option>
+          <option value="auditoria">Auditoria</option>
+          <option value="conformidade">Conformidade</option>
+          <option value="procedimentos">Procedimentos</option>
+          <option value="normas">Normas</option>
+          <option value="relatorios">Relatórios</option>
+        </select>
       </div>
       <div class="online-dot" title="Online"></div>
     </header>
@@ -974,10 +1012,11 @@ async function enviarMensagem() {
   const typing = adicionarTyping();
 
   try {
+    const categoria = document.getElementById('categoriaConsulta').value || null;
     const res  = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pergunta, topK: 5 }),
+      body: JSON.stringify({ pergunta, categoria, topK: 5 }),
     });
     const json = await res.json();
 
